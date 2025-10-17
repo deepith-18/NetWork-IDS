@@ -1,0 +1,309 @@
+<!-- FILE: templates/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIDS - Stopped</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+    <!-- NEW: CDN for Pie Chart Labels -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+
+        :root {
+            --bg-color: #0d1117;
+            --panel-bg: rgba(22, 27, 38, 0.7);
+            --border-color: rgba(102, 126, 234, 0.3);
+            --glow-color: rgba(102, 126, 234, 0.5);
+            --gradient-start: #667eea;
+            --gradient-end: #764ba2;
+            --text-color: #e0e0e0;
+            --text-muted: #888;
+        }
+
+        body {
+            font-family: 'Roboto Mono', monospace;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+            background-size: 25px 25px;
+            overflow-x: hidden;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+            animation: fadeIn 0.5s ease-out forwards;
+            opacity: 0;
+        }
+
+        .panel.control { animation-delay: 0.1s; }
+        .panel.stat-card { animation-delay: 0.2s; }
+        .panel.chart-container { animation-delay: 0.3s; }
+        .panel.packet-flow { animation-delay: 0.4s; }
+        .panel.alert-table { animation-delay: 0.5s; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .navbar { background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end)); box-shadow: 0 4px 30px rgba(0,0,0,0.4); }
+        .navbar-brand { color: #fff; font-weight: 700; }
+
+        .stat-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 0 30px var(--glow-color);
+            border-color: var(--gradient-start);
+        }
+
+        .stat-number {
+            font-size: 2.8rem;
+            font-weight: 700;
+            color: #fff;
+            background: -webkit-linear-gradient(45deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-label { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .chart-container { padding: 20px; height: 350px; }
+        .table { color: var(--text-color); }
+        .table thead { border-bottom: 2px solid var(--border-color); }
+        .table tbody tr { border-bottom: 1px solid rgba(102, 126, 234, 0.1); transition: background-color 0.3s ease; }
+        .table tbody tr:last-child { border-bottom: none; }
+        .table tbody tr:hover { background-color: rgba(102, 126, 234, 0.08); }
+        
+        @keyframes alert-glow { 0% { background-color: rgba(102, 126, 234, 0.1); } 100% { background-color: transparent; } }
+        .new-alert { animation: alert-glow 2s ease-out; }
+
+        .badge { border-radius: 4px; }
+        .badge-critical { background-color: #e53e3e; color: white; } .badge-high { background-color: #ed8936; color: white; }
+        .badge-medium { background-color: #ecc94b; color: black; } .badge-low { background-color: #48bb78; color: white; }
+        
+        .btn { border-radius: 8px; font-weight: 700; transition: all 0.2s ease; text-transform: uppercase; letter-spacing: 1px; padding: 8px 16px; }
+        .btn:active { transform: scale(0.98); }
+        .btn-start { background: #28a745; border: none; color: white; }
+        .btn-start:hover { background: #218838; box-shadow: 0 0 15px #28a745; }
+        .btn-stop { background: #dc3545; border: none; color: white; }
+        .btn-stop:hover { background: #c82333; box-shadow: 0 0 15px #dc3545; }
+        .btn-clear { background: #6c757d; border: none; color: white; }
+        .btn-clear:hover { background: #5a6268; box-shadow: 0 0 15px #6c757d; }
+        
+        .status-indicator { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .status-running { background: #28a745; box-shadow: 0 0 10px #28a745; animation: pulse 1.5s infinite; }
+        .status-stopped { background: #dc3545; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); } 100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); } }
+        
+        .packet-flow { height: 50px; overflow: hidden; padding: 10px; margin: 10px 0; }
+        .packet-item { display: inline-block; padding: 5px 10px; margin: 0 5px; background: rgba(102, 126, 234, 0.1); border-radius: 5px; font-size: 0.8rem; border: 1px solid var(--border-color); }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark mb-4">
+        <div class="container-fluid"><span class="navbar-brand mb-0 h1"><i class="fas fa-shield-alt"></i> Network Intrusion Detection System</span><span class="text-white"><span class="status-indicator status-stopped" id="statusIndicator"></span><span id="systemStatus">OFFLINE</span></span></div>
+    </nav>
+    <div class="container-fluid">
+        <!-- MODIFIED: Button layout for better spacing -->
+        <div class="panel control p-3 mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-sliders-h"></i> SYSTEM CONTROL</h5>
+                <div>
+                    <button class="btn btn-clear me-2" id="clearBtn" onclick="clearAlerts()"><i class="fas fa-eraser"></i> Clear Alerts</button>
+                    <button class="btn btn-start" id="startBtn" onclick="startMonitoring()"><i class="fas fa-play-circle"></i> Start Scan</button>
+                    <button class="btn btn-stop" id="stopBtn" onclick="stopMonitoring()" disabled><i class="fas fa-stop-circle"></i> Stop Scan</button>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-3"><div class="panel stat-card text-center"><div class="stat-number" id="totalPackets">0</div><div class="stat-label">Total Packets</div></div></div>
+            <div class="col-md-3"><div class="panel stat-card text-center"><div class="stat-number" id="packetsPerSec">0</div><div class="stat-label">Packets/Sec</div></div></div>
+            <div class="col-md-3"><div class="panel stat-card text-center"><div class="stat-number" id="tcpPackets">0</div><div class="stat-label">TCP Packets</div></div></div>
+            <div class="col-md-3"><div class="panel stat-card text-center"><div class="stat-number" id="alertCount">0</div><div class="stat-label">Threats Detected</div></div></div>
+        </div>
+        <div class="row">
+            <div class="col-md-6"><div class="panel chart-container"><canvas id="protocolChart"></canvas></div></div>
+            <div class="col-md-6"><div class="panel chart-container"><canvas id="trafficChart"></canvas></div></div>
+        </div>
+        <div class="panel packet-flow" id="packetFlow"><div class="text-muted text-center">Awaiting packet stream...</div></div>
+        <div class="panel alert-table mt-4">
+            <table class="table table-hover">
+                <thead><tr><th>Timestamp</th><th>Threat Type</th><th>Severity</th><th>Source IP</th><th>Description</th></tr></thead>
+                <tbody id="alertsTable"><tr><td colspan="5" class="text-center text-muted">No threats detected. System clear.</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        // Register the datalabels plugin globally
+        Chart.register(ChartDataLabels);
+
+        const socket = io();
+        let protocolChart, trafficChart;
+        let trafficData = { labels: [], data: [] };
+        
+        function animateValue(element, start, end, duration) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                element.innerHTML = Math.floor(progress * (end - start) + start).toLocaleString();
+                if (progress < 1) window.requestAnimationFrame(step);
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function initCharts() {
+            Chart.defaults.color = 'var(--text-color)';
+            Chart.defaults.borderColor = 'var(--border-color)';
+            const commonOptions = { responsive: true, maintainAspectRatio: false, animation: { duration: 800, easing: 'easeOutQuart' }, plugins: { legend: { display: true, position: 'top', labels: { color: 'var(--text-color)' } }, title: { display: true, color: '#fff', font: { size: 16 } } } };
+            
+            const tooltipOptions = { enabled: true, backgroundColor: 'rgba(0, 0, 0, 0.8)', titleColor: '#fff', bodyColor: 'var(--text-color)', borderColor: 'var(--border-color)', borderWidth: 1, padding: 10, cornerRadius: 8 };
+
+            const protocolCtx = document.getElementById('protocolChart').getContext('2d');
+            protocolChart = new Chart(protocolCtx, { 
+                type: 'doughnut', 
+                data: { labels: ['TCP', 'UDP', 'ICMP', 'Other'], datasets: [{ data: [0, 0, 0, 0], backgroundColor: ['#667eea', '#48bb78', '#ed8936', '#a0aec0'], borderWidth: 0 }] }, 
+                options: { 
+                    ...commonOptions, 
+                    plugins: { 
+                        ...commonOptions.plugins, 
+                        title: { ...commonOptions.plugins.title, text: 'Protocol Distribution' }, 
+                        tooltip: tooltipOptions,
+                        // NEW: Configuration for the labels on the pie chart
+                        datalabels: {
+                            formatter: (value, ctx) => {
+                                let sum = 0;
+                                let dataArr = ctx.chart.data.datasets[0].data;
+                                dataArr.map(data => { sum += data; });
+                                let percentage = (value*100 / sum).toFixed(1) + '%';
+                                return sum > 0 ? percentage : '';
+                            },
+                            color: '#fff',
+                            font: { weight: 'bold', size: 14 }
+                        }
+                    } 
+                } 
+            });
+            
+            const trafficCtx = document.getElementById('trafficChart').getContext('2d');
+            const gradient = trafficCtx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(102, 126, 234, 0.6)');
+            gradient.addColorStop(1, 'rgba(118, 75, 162, 0.1)');
+            trafficChart = new Chart(trafficCtx, { 
+                type: 'line', 
+                data: { labels: [], datasets: [{ 
+                    label: 'Packets/sec', 
+                    data: [], 
+                    borderColor: 'var(--gradient-start)', 
+                    // MODIFIED: Thicker, more vibrant line
+                    borderWidth: 3,
+                    backgroundColor: gradient, 
+                    tension: 0.4, 
+                    fill: true, 
+                    pointBackgroundColor: 'var(--gradient-start)',
+                    pointRadius: 2,
+                    pointHoverRadius: 8,
+                    pointHoverBackgroundColor: '#fff'
+                }] }, 
+                options: { ...commonOptions, scales: { x: { ticks: { color: 'var(--text-muted)' }, grid: { color: 'var(--border-color)' } }, y: { ticks: { color: 'var(--text-muted)' }, grid: { color: 'var(--border-color)' } } }, plugins: { ...commonOptions.plugins, title: { ...commonOptions.plugins.title, text: 'Real-time Traffic Flow' }, tooltip: tooltipOptions } } 
+            });
+        }
+        
+        function updateStats(newStats) {
+            const totalPacketsEl = document.getElementById('totalPackets');
+            const packetsPerSecEl = document.getElementById('packetsPerSec');
+            const tcpPacketsEl = document.getElementById('tcpPackets');
+            animateValue(totalPacketsEl, parseInt(totalPacketsEl.innerText.replace(/,/g, '')), newStats.total_packets, 500);
+            animateValue(packetsPerSecEl, parseInt(packetsPerSecEl.innerText.replace(/,/g, '')), newStats.packets_per_sec, 500);
+            animateValue(tcpPacketsEl, parseInt(tcpPacketsEl.innerText.replace(/,/g, '')), newStats.tcp_packets, 500);
+            
+            protocolChart.data.datasets[0].data = [newStats.tcp_packets, newStats.udp_packets, newStats.icmp_packets, newStats.other_packets];
+            protocolChart.update();
+            
+            const now = new Date().toLocaleTimeString();
+            trafficData.labels.push(now);
+            trafficData.data.push(newStats.packets_per_sec);
+            if (trafficData.labels.length > 30) { trafficData.labels.shift(); trafficData.data.shift(); }
+            trafficChart.data.labels = trafficData.labels;
+            trafficChart.data.datasets[0].data = trafficData.data;
+            trafficChart.update('quiet');
+        }
+        
+        function addAlert(alert) {
+            const tableBody = document.getElementById('alertsTable');
+            if (tableBody.rows.length === 1 && tableBody.rows[0].cells.length === 1) tableBody.innerHTML = '';
+            const severityClass = `badge-${alert.severity.toLowerCase()}`;
+            const newRow = tableBody.insertRow(0);
+            newRow.className = 'new-alert';
+            newRow.innerHTML = `<td>${alert.timestamp}</td><td><i class="fas fa-biohazard"></i> ${alert.type}</td><td><span class="badge ${severityClass}">${alert.severity}</span></td><td>${alert.src_ip}</td><td>${alert.description}</td>`;
+            if (tableBody.rows.length > 50) tableBody.deleteRow(-1);
+            const alertCountEl = document.getElementById('alertCount');
+            animateValue(alertCountEl, parseInt(alertCountEl.innerText.replace(/,/g, '')), parseInt(alertCountEl.innerText.replace(/,/g, '')) + 1, 500);
+        }
+        
+        function clearAlerts() {
+            const tableBody = document.getElementById('alertsTable');
+            tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No threats detected. System clear.</td></tr>';
+            const alertCountEl = document.getElementById('alertCount');
+
+            animateValue(alertCountEl, parseInt(alertCountEl.innerText.replace(/,/g, '')), 0, 500);
+        }
+        
+        function updatePacketFlow(packet) {
+            const flowDiv = document.getElementById('packetFlow');
+            if (flowDiv.children.length === 1 && flowDiv.children[0].classList.contains('text-muted')) flowDiv.innerHTML = '';
+            const item = document.createElement('div');
+            item.className = 'packet-item';
+            item.textContent = `${packet.protocol}: ${packet.src_ip} → ${packet.dst_ip}`;
+            flowDiv.appendChild(item);
+            if (flowDiv.children.length > 15) flowDiv.removeChild(flowDiv.firstChild);
+        }
+        
+        async function startMonitoring() {
+            try {
+                const response = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    document.getElementById('systemStatus').textContent = 'ONLINE';
+                    document.getElementById('statusIndicator').className = 'status-indicator status-running';
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    document.title = "NIDS - Monitoring...";
+                } else { alert('Failed to start monitoring: ' + data.message); }
+            } catch (error) { console.error('Error starting monitoring:', error); alert('Failed to start monitoring. Is the server running and did you use sudo?'); }
+        }
+        
+        async function stopMonitoring() {
+            const res = await fetch('/api/stop', { method: 'POST' });
+            if (res.ok) {
+                document.getElementById('systemStatus').textContent = 'OFFLINE';
+                document.getElementById('statusIndicator').className = 'status-indicator status-stopped';
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.title = "NIDS - Stopped";
+            }
+        }
+        
+        socket.on('connect', () => console.log('Connected to NIDS Terminal'));
+        socket.on('new_packet', data => { updateStats(data.stats); updatePacketFlow(data); });
+        socket.on('new_alert', alert => addAlert(alert));
+        
+        window.onload = () => {
+            initCharts();
+            fetch('/api/alerts?limit=20').then(res => res.json()).then(data => {
+                if (data.alerts && data.alerts.length > 0) {
+                    document.getElementById('alertCount').textContent = data.alerts.length;
+                    data.alerts.reverse().forEach(addAlert);
+                }
+            });
+        };
+    </script>
+</body>
+</html>
